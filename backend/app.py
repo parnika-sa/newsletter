@@ -229,6 +229,12 @@ def send_newsletter():
         # Pass attachments memory buffers to mailer
         if send_email(sub.email, subject, tracked_content, token, attachments):
             success_count += 1
+        else:
+            # If one email fails (e.g. SMTP blocked by Render), break to prevent 30s Gunicorn timeout
+            return jsonify({
+                'error': f'Failed to send email to {sub.email}. Your server (Render) might be blocking outbound SMTP connections.',
+                'count': success_count
+            }), 500
             
     return jsonify({
         'message': f'Newsletter sent successfully to {success_count} out of {len(active_subscribers)} active subscribers!',
