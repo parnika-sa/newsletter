@@ -160,6 +160,21 @@ def import_csv():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/approve/<int:subscriber_id>', methods=['POST'])
+def approve_subscriber(subscriber_id):
+    auth_header = request.headers.get('Authorization')
+    if auth_header != 'Bearer my_super_secret_admin_token':
+        return jsonify({'error': 'Unauthorized'}), 401
+        
+    subscriber = Subscriber.query.get(subscriber_id)
+    if not subscriber:
+        return jsonify({'error': 'Subscriber not found'}), 404
+        
+    subscriber.is_verified = True
+    db.session.commit()
+    
+    return jsonify({'message': 'Subscriber approved successfully'}), 200
+
 # --- NEWSLETTER SENDING ---
 
 @app.route('/api/send', methods=['POST'])

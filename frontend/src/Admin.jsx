@@ -369,13 +369,35 @@ function Admin() {
                         <div className="col-span-3 text-xs text-gray-500">
                           {new Date(sub.subscribed_at).toLocaleDateString()}
                         </div>
-                        <div className="col-span-3 text-right flex gap-2 justify-end">
-                          <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${sub.is_verified ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}`}>
-                            {sub.is_verified ? 'Verified' : 'Pending'}
-                          </span>
-                          <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${sub.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                            {sub.is_active ? 'Active' : 'Opted Out'}
-                          </span>
+                        <div className="col-span-3 text-right flex gap-2 justify-end items-center">
+                          {!sub.is_verified && (
+                            <button 
+                              onClick={async () => {
+                                try {
+                                  const res = await fetch((import.meta.env.VITE_API_URL || 'http://localhost:5000') + '/api/approve/' + sub.id, {
+                                    method: 'POST',
+                                    headers: { 'Authorization': 'Bearer my_super_secret_admin_token' }
+                                  });
+                                  if (res.ok) fetchData();
+                                } catch (e) {
+                                  alert('Approval failed');
+                                }
+                              }}
+                              className="text-xs px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-md font-medium transition-colors shadow-sm"
+                            >
+                              Approve
+                            </button>
+                          )}
+                          
+                          {sub.is_verified ? (
+                            <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${sub.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                              {sub.is_active ? 'Active' : 'Opted Out'}
+                            </span>
+                          ) : (
+                            <span className="text-xs px-2.5 py-1 rounded-full font-medium bg-orange-100 text-orange-700">
+                              Pending
+                            </span>
+                          )}
                         </div>
                       </div>
                     ))}
