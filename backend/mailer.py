@@ -5,8 +5,14 @@ from email.mime.base import MIMEBase
 from email import encoders
 import os
 
-def get_html_template(content_html, subscriber_id):
-    # This creates a beautiful email frame
+# Set base URL to frontend by default, or an env variable
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:5173')
+BACKEND_URL = os.environ.get('BACKEND_URL', 'http://localhost:5000')
+
+def get_html_template(content_html, unique_token=None):
+    unsubscribe_link = f"{FRONTEND_URL}/unsubscribe/{unique_token}" if unique_token else f"{FRONTEND_URL}/"
+    tracking_pixel = f'<img src="{BACKEND_URL}/api/track/open/{unique_token}" width="1" height="1" alt="" />' if unique_token else ''
+
     template = f"""
     <!DOCTYPE html>
     <html>
@@ -44,16 +50,16 @@ def get_html_template(content_html, subscriber_id):
                 </div>
                 <p>You received this email because you are subscribed to the Neural Automate Newsletter.</p>
                 <p>&copy; 2026 Neural Automate. All rights reserved.</p>
-                <!-- Usually you would put your frontend unsubscribe link here -->
-                <p><a href="http://localhost:5173/">Unsubscribe / Manage Preferences</a></p>
+                <p><a href="{unsubscribe_link}">Unsubscribe / Manage Preferences</a></p>
             </div>
         </div>
+        {tracking_pixel}
     </body>
     </html>
     """
     return template
 
-def send_email(to_email, subject, html_content, subscriber_id=None, attachments=None):
+def send_email(to_email, subject, html_content, unique_token=None, attachments=None):
     smtp_server = os.environ.get('SMTP_SERVER', 'smtp.gmail.com')
     smtp_port = int(os.environ.get('SMTP_PORT', 587))
     smtp_user = os.environ.get('SMTP_USER')
@@ -65,7 +71,7 @@ def send_email(to_email, subject, html_content, subscriber_id=None, attachments=
         return False
 
     try:
-        final_html = get_html_template(html_content, subscriber_id)
+        final_html = get_html_template(html_content, unique_token)
 
         msg = MIMEMultipart('mixed')
         msg['Subject'] = subject
@@ -101,3 +107,26 @@ def send_email(to_email, subject, html_content, subscriber_id=None, attachments=
     except Exception as e:
         print(f"Failed to send email to {to_email}: {e}")
         return False
+
+def send_verification_email(to_email, verification_token):
+    verify_link = f"{FRONTEND_URL}/verify/{verification_token}"
+    subject = "Please Verify Your Subscription - Neural Automate"
+    content = f"""
+        <h2>Welcome aboard!</h2>
+        <p>Thank you for subscribing to Neural Automate. To ensure we have the right email address, please verify your subscription by clicking the button below.</p>
+        <p style="text-align: center; margin: 30px 0;">
+            <a href="{verify_link}" style="background-color: #0b57d0; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">Verify Email Address</a>
+        </p>
+        <p>If you didn't request this, you can safely ignore this email.</p>
+    """
+    return send_email(to_email, subject, content)
+
+def send_welcome_email(to_email):
+    subject = "Welcome to Neural Automate!"
+    content = """
+        <h2>Subscription Confirmed!</h2>
+        <p>You're all set! You'll now receive actionable insights, market trends, and automation strategies directly to your inbox.</p>
+        <p>Expect our first newsletter soon. In the meantime, feel free to reply to this email if you have any questions.</p>
+        <p>Best regards,<br>The Neural Automate Team</p>
+    """
+    return send_email(to_email, subject, content)

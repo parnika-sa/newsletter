@@ -1,20 +1,25 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft, Users, Send, AlertCircle, Maximize2, X, Paperclip, Clock, UploadCloud, FileText } from 'lucide-react'
+import { ArrowLeft, Users, Send, AlertCircle, Maximize2, X, Paperclip, Clock, UploadCloud, FileText, BarChart3, Mail, MousePointerClick } from 'lucide-react'
 import ReactQuill from 'react-quill'
 import 'react-quill/dist/quill.snow.css'
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 
 function Admin() {
   const [token, setToken] = useState(localStorage.getItem('admin_token') || '')
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [subscribers, setSubscribers] = useState([])
+  const [stats, setStats] = useState({ total_subscribers: 0, active_subscribers: 0, recent_campaigns: [] })
+  
   const [subject, setSubject] = useState('')
   const [content, setContent] = useState('')
   const [attachments, setAttachments] = useState([])
   const [status, setStatus] = useState({ type: '', message: '' })
   const [loading, setLoading] = useState(false)
-  const [isComposeOpen, setIsComposeOpen] = useState(true)
+  
+  const [isComposeOpen, setIsComposeOpen] = useState(false)
   const [importLoading, setImportLoading] = useState(false)
+  const [activeTab, setActiveTab] = useState('dashboard')
   
   const quillRef = useRef(null)
   const fileInputRef = useRef(null)
@@ -25,7 +30,7 @@ function Admin() {
     if (token === 'neural_admin_123') {
       localStorage.setItem('admin_token', token)
       setIsAuthenticated(true)
-      fetchSubscribers()
+      fetchData()
     } else {
       setStatus({ type: 'error', message: 'Invalid password' })
     }
@@ -37,30 +42,28 @@ function Admin() {
     setIsAuthenticated(false)
   }
 
-  const fetchSubscribers = async () => {
+  const fetchData = async () => {
     try {
-      const response = await fetch('http://localhost:5000/api/subscribers', {
-        headers: { 'Authorization': 'Bearer my_super_secret_admin_token' }
-      })
-      if (response.ok) {
-        const data = await response.json()
-        setSubscribers(data)
-      }
+      const headers = { 'Authorization': 'Bearer my_super_secret_admin_token' }
+      const [subsRes, statsRes] = await Promise.all([
+        fetch('http://localhost:5000/api/subscribers', { headers }),
+        fetch('http://localhost:5000/api/stats', { headers })
+      ])
+      
+      if (subsRes.ok) setSubscribers(await subsRes.json())
+      if (statsRes.ok) setStats(await statsRes.json())
     } catch (error) {
-      console.error("Failed to fetch subscribers")
+      console.error("Failed to fetch data")
     }
   }
 
   useEffect(() => {
-    if (isAuthenticated) {
-      fetchSubscribers()
-    } else if (localStorage.getItem('admin_token') === 'neural_admin_123') {
+    if (isAuthenticated || localStorage.getItem('admin_token') === 'neural_admin_123') {
       setIsAuthenticated(true)
-      fetchSubscribers()
+      fetchData()
     }
   }, [isAuthenticated])
 
-  // Custom Image Handler to upload image instead of Base64
   const imageHandler = () => {
     const input = document.createElement('input')
     input.setAttribute('type', 'file')
@@ -102,9 +105,7 @@ function Admin() {
         ['link', 'image'],
         ['clean']
       ],
-      handlers: {
-        image: imageHandler
-      }
+      handlers: { image: imageHandler }
     }
   }), [])
 
@@ -122,16 +123,12 @@ function Admin() {
       const formData = new FormData()
       formData.append('subject', subject)
       formData.append('content', content)
-      attachments.forEach(file => {
-        formData.append('attachments', file)
-      })
+      attachments.forEach(file => formData.append('attachments', file))
 
       const response = await fetch('http://localhost:5000/api/send', {
         method: 'POST',
-        headers: {
-          'Authorization': 'Bearer my_super_secret_admin_token'
-        },
-        body: formData // Using FormData for multipart
+        headers: { 'Authorization': 'Bearer my_super_secret_admin_token' },
+        body: formData
       })
       const data = await response.json()
       
@@ -140,6 +137,7 @@ function Admin() {
         setSubject('')
         setContent('')
         setAttachments([])
+        fetchData() // Refresh stats
         setTimeout(() => setIsComposeOpen(false), 4000)
       } else {
         setStatus({ type: 'error', message: data.error })
@@ -181,7 +179,7 @@ function Admin() {
       const data = await res.json()
       if (res.ok) {
         alert(data.message)
-        fetchSubscribers()
+        fetchData()
       } else {
         alert(data.error || 'Import failed')
       }
@@ -214,6 +212,13 @@ function Admin() {
     )
   }
 
+  const chartData = stats.recent_campaigns.map(c => ({
+    name: c.subject.length > 15 ? c.subject.substring(0,15) + '...' : c.subject,
+    opens: c.total_opened,
+    clicks: c.total_clicks,
+    sent: c.total_sent
+  })).reverse()
+
   return (
     <div className="min-h-screen bg-[#f6f8fc] relative font-sans">
       <header className="flex items-center justify-between p-3 bg-white border-b border-gray-200 shadow-sm z-10 relative">
@@ -245,12 +250,22 @@ function Admin() {
           </button>
 
           <div className="flex flex-col gap-2 flex-1">
-            <div className="flex items-center justify-between px-4 py-2 bg-[#d3e3fd] text-[#041e49] rounded-full font-medium text-sm">
+            <div 
+              onClick={() => setActiveTab('dashboard')}
+              className={`flex items-center gap-4 px-4 py-2 rounded-full font-medium text-sm cursor-pointer ${activeTab === 'dashboard' ? 'bg-[#d3e3fd] text-[#041e49]' : 'text-gray-600 hover:bg-gray-100'}`}
+            >
+              <BarChart3 size={18} />
+              Dashboard
+            </div>
+            <div 
+              onClick={() => setActiveTab('subscribers')}
+              className={`flex items-center justify-between px-4 py-2 rounded-full font-medium text-sm cursor-pointer ${activeTab === 'subscribers' ? 'bg-[#d3e3fd] text-[#041e49]' : 'text-gray-600 hover:bg-gray-100'}`}
+            >
               <span className="flex items-center gap-4">
                 <Users size={18} />
                 Subscribers
               </span>
-              <span>{subscribers.filter(s => s.is_active).length}</span>
+              <span>{stats.active_subscribers}</span>
             </div>
 
             {/* Bulk Import Button */}
@@ -271,50 +286,104 @@ function Admin() {
                 <UploadCloud size={16} />
                 {importLoading ? 'Importing...' : 'Bulk Import CSV'}
               </button>
-              <p className="text-[10px] text-gray-400 mt-2 text-center px-2">Format: Column A must contain emails.</p>
             </div>
           </div>
         </div>
 
         {/* Main Content Area */}
         <div className="flex-1 bg-white p-6 overflow-y-auto">
-          <h2 className="text-2xl text-gray-800 font-medium mb-6">Subscribers Database</h2>
-          
-          <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
-            {subscribers.length === 0 ? (
-              <div className="p-12 text-center text-gray-500 flex flex-col items-center">
-                <Users size={48} className="mb-4 text-gray-300"/>
-                <p>No subscribers yet. Use the Bulk Import tool to add your existing list.</p>
-              </div>
-            ) : (
-              <div className="flex flex-col">
-                <div className="grid grid-cols-12 p-3 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  <div className="col-span-1"></div>
-                  <div className="col-span-6">Email</div>
-                  <div className="col-span-3">Joined Date</div>
-                  <div className="col-span-2 text-right">Status</div>
-                </div>
-                {subscribers.map((sub, index) => (
-                  <div key={sub.id} className={`grid grid-cols-12 items-center p-3 hover:bg-gray-50 cursor-default border-b border-gray-100`}>
-                    <div className="col-span-1 flex justify-center">
-                      <div className="w-6 h-6 rounded bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-bold">{sub.email.charAt(0).toUpperCase()}</div>
-                    </div>
-                    <div className="col-span-6 text-sm text-gray-800 font-medium truncate pr-4">
-                      {sub.email}
-                    </div>
-                    <div className="col-span-3 text-xs text-gray-500">
-                      {new Date(sub.subscribed_at).toLocaleDateString()}
-                    </div>
-                    <div className="col-span-2 text-right">
-                      <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${sub.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                        {sub.is_active ? 'Active' : 'Opted Out'}
-                      </span>
-                    </div>
+          {activeTab === 'dashboard' ? (
+            <div className="max-w-5xl">
+              <h2 className="text-2xl text-gray-800 font-medium mb-6">Overview</h2>
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                <div className="bg-white border border-gray-200 p-6 rounded-xl shadow-sm flex items-center gap-4">
+                  <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center"><Users size={24}/></div>
+                  <div>
+                    <p className="text-sm text-gray-500 font-medium">Total Audience</p>
+                    <p className="text-2xl font-bold text-gray-800">{stats.total_subscribers}</p>
                   </div>
-                ))}
+                </div>
+                <div className="bg-white border border-gray-200 p-6 rounded-xl shadow-sm flex items-center gap-4">
+                  <div className="w-12 h-12 bg-green-100 text-green-600 rounded-full flex items-center justify-center"><Mail size={24}/></div>
+                  <div>
+                    <p className="text-sm text-gray-500 font-medium">Active & Verified</p>
+                    <p className="text-2xl font-bold text-gray-800">{stats.active_subscribers}</p>
+                  </div>
+                </div>
+                <div className="bg-white border border-gray-200 p-6 rounded-xl shadow-sm flex items-center gap-4">
+                  <div className="w-12 h-12 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center"><MousePointerClick size={24}/></div>
+                  <div>
+                    <p className="text-sm text-gray-500 font-medium">Campaigns Sent</p>
+                    <p className="text-2xl font-bold text-gray-800">{stats.recent_campaigns.length}</p>
+                  </div>
+                </div>
               </div>
-            )}
-          </div>
+
+              <div className="bg-white border border-gray-200 p-6 rounded-xl shadow-sm mb-8">
+                <h3 className="text-lg font-medium text-gray-800 mb-6">Recent Campaign Performance</h3>
+                {stats.recent_campaigns.length === 0 ? (
+                  <p className="text-gray-500 text-center py-8">No campaigns sent yet.</p>
+                ) : (
+                  <div className="h-[300px] w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={chartData} margin={{ top: 20, right: 30, left: 0, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                        <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#6b7280', fontSize: 12}} />
+                        <YAxis axisLine={false} tickLine={false} tick={{fill: '#6b7280', fontSize: 12}} />
+                        <Tooltip cursor={{fill: '#f9fafb'}} contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px rgba(0,0,0,0.05)'}} />
+                        <Bar dataKey="sent" fill="#e5e7eb" radius={[4,4,0,0]} name="Sent" />
+                        <Bar dataKey="opens" fill="#3b82f6" radius={[4,4,0,0]} name="Opens" />
+                        <Bar dataKey="clicks" fill="#10b981" radius={[4,4,0,0]} name="Clicks" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div>
+              <h2 className="text-2xl text-gray-800 font-medium mb-6">Subscribers Database</h2>
+              <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+                {subscribers.length === 0 ? (
+                  <div className="p-12 text-center text-gray-500 flex flex-col items-center">
+                    <Users size={48} className="mb-4 text-gray-300"/>
+                    <p>No subscribers yet.</p>
+                  </div>
+                ) : (
+                  <div className="flex flex-col">
+                    <div className="grid grid-cols-12 p-3 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                      <div className="col-span-1"></div>
+                      <div className="col-span-5">Email</div>
+                      <div className="col-span-3">Joined Date</div>
+                      <div className="col-span-3 text-right">Status</div>
+                    </div>
+                    {subscribers.map((sub, index) => (
+                      <div key={sub.id} className={`grid grid-cols-12 items-center p-3 hover:bg-gray-50 cursor-default border-b border-gray-100`}>
+                        <div className="col-span-1 flex justify-center">
+                          <div className="w-6 h-6 rounded bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-bold">{sub.email.charAt(0).toUpperCase()}</div>
+                        </div>
+                        <div className="col-span-5 text-sm text-gray-800 font-medium truncate pr-4">
+                          {sub.email}
+                        </div>
+                        <div className="col-span-3 text-xs text-gray-500">
+                          {new Date(sub.subscribed_at).toLocaleDateString()}
+                        </div>
+                        <div className="col-span-3 text-right flex gap-2 justify-end">
+                          <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${sub.is_verified ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}`}>
+                            {sub.is_verified ? 'Verified' : 'Pending'}
+                          </span>
+                          <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${sub.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                            {sub.is_active ? 'Active' : 'Opted Out'}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -322,7 +391,6 @@ function Admin() {
       {isComposeOpen && (
         <div className="fixed bottom-0 right-10 md:right-24 w-full max-w-[550px] bg-white rounded-t-xl shadow-2xl flex flex-col border border-gray-300 z-50 overflow-hidden" style={{ height: '600px' }}>
           
-          {/* Window Header */}
           <div className="bg-[#f2f6fc] px-4 py-3 flex items-center justify-between rounded-t-xl cursor-pointer" onClick={() => setIsComposeOpen(false)}>
             <span className="text-sm font-medium text-gray-800">New Message</span>
             <div className="flex items-center gap-3 text-gray-500">
@@ -332,12 +400,11 @@ function Admin() {
           </div>
 
           <form onSubmit={handleSend} className="flex flex-col flex-1 relative overflow-hidden bg-white">
-            
             <div className="px-4 py-2 border-b border-gray-100 flex items-center">
               <span className="text-gray-500 text-sm w-8">To</span>
               <div className="flex gap-2 items-center flex-1">
                 <div className="border border-gray-300 rounded-full px-3 py-0.5 text-xs text-gray-700 bg-gray-50 flex items-center">
-                  <Users size={12} className="mr-1.5 text-blue-500"/> All {subscribers.filter(s => s.is_active).length} Subscribers
+                  <Users size={12} className="mr-1.5 text-blue-500"/> {stats.active_subscribers} Verified Subscribers
                 </div>
               </div>
             </div>
@@ -364,14 +431,12 @@ function Admin() {
               />
             </div>
 
-            {/* Attachments Area */}
             {attachments.length > 0 && (
               <div className="px-4 py-2 bg-gray-50 border-t border-gray-100 flex flex-wrap gap-2 max-h-24 overflow-y-auto custom-scrollbar">
                 {attachments.map((file, i) => (
                   <div key={i} className="flex items-center gap-2 bg-white border border-gray-200 px-2 py-1 rounded text-xs text-gray-600 shadow-sm">
                     <FileText size={12} className="text-blue-500"/>
                     <span className="max-w-[120px] truncate">{file.name}</span>
-                    <span className="text-gray-400">({(file.size/1024/1024).toFixed(1)}MB)</span>
                     <X size={12} className="cursor-pointer hover:text-red-500 ml-1" onClick={() => removeAttachment(i)}/>
                   </div>
                 ))}
@@ -384,7 +449,6 @@ function Admin() {
               </div>
             )}
 
-            {/* Footer / Send Button */}
             <div className="p-3 border-t border-gray-100 flex items-center justify-between bg-white mt-auto">
               <div className="flex items-center gap-2">
                 <button 
@@ -405,7 +469,6 @@ function Admin() {
                   <div 
                     onClick={() => fileInputRef.current.click()}
                     className="p-1.5 hover:bg-gray-100 rounded cursor-pointer transition-colors" 
-                    title="Attach files"
                   >
                     <Paperclip size={18} />
                   </div>
@@ -417,28 +480,9 @@ function Admin() {
       )}
 
       <style dangerouslySetInnerHTML={{__html: `
-        .compose-editor .ql-toolbar {
-          border-left: none;
-          border-right: none;
-          border-top: none;
-          background: white;
-          padding: 8px 16px;
-        }
-        .compose-editor .ql-container {
-          border: none;
-          font-family: 'Arial', sans-serif;
-          font-size: 14px;
-        }
-        .compose-editor .ql-editor {
-          padding: 16px;
-          color: #1f2937;
-        }
-        .compose-editor .ql-editor p {
-          color: #1f2937;
-        }
-        .compose-editor .ql-editor.ql-blank::before {
-          color: #9ca3af;
-        }
+        .compose-editor .ql-toolbar { border: none; border-bottom: 1px solid #f3f4f6; }
+        .compose-editor .ql-container { border: none; font-size: 14px; }
+        .compose-editor .ql-editor { padding: 16px; color: #1f2937; }
       `}} />
     </div>
   )
