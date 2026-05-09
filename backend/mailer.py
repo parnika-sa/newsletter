@@ -42,76 +42,78 @@ def get_html_template(content_html, unique_token=None):
                 <h1>Neural<span>Automate</span></h1>
             </div>
             <div class="content">
-                {content_html}
-            </div>
-            <div class="footer">
-                <div class="social-links">
-                    <a href="#">Twitter</a> | <a href="#">LinkedIn</a> | <a href="#">Instagram</a>
-                </div>
-                <p>You received this email because you are subscribed to the Neural Automate Newsletter.</p>
-                <p>&copy; 2026 Neural Automate. All rights reserved.</p>
-                <p><a href="{unsubscribe_link}">Unsubscribe / Manage Preferences</a></p>
-            </div>
+        <div class="header">
+            <a href="https://neuralautomate.vercel.app" class="logo">Neural Automate</a>
         </div>
-        {tracking_pixel}
+        <div class="content">
+            {content}
+        </div>
+        <div class="footer">
+            <p>You received this email because you are subscribed to Neural Automate.</p>
+            <p>© 2026 Neural Automate. All rights reserved.</p>
+            {tracking_pixel}
+        </div>
     </body>
     </html>
     """
-    return template
 
 def send_email(to_email, subject, html_content, unique_token=None, attachments=None):
-    smtp_server = os.environ.get('SMTP_SERVER', 'smtp.gmail.com')
-    smtp_port = int(os.environ.get('SMTP_PORT', 587))
-    smtp_user = os.environ.get('SMTP_USER')
-    smtp_password = os.environ.get('SMTP_PASSWORD', '').replace(' ', '')
+    api_key = os.environ.get('BREVO_API_KEY')
     from_email = os.environ.get('FROM_EMAIL', 'Neural Automate <neuralautomate@gmail.com>')
+    
+    # Parse from_email "Name <email@domain.com>"
+    sender_name = "Neural Automate"
+    sender_email = "neuralautomate@gmail.com"
+    if '<' in from_email and '>' in from_email:
+        sender_name = from_email.split('<')[0].strip()
+        sender_email = from_email.split('<')[1].replace('>', '').strip()
+    else:
+        sender_email = from_email.strip()
 
-    if not smtp_user or not smtp_password:
-        print(f"Missing SMTP credentials. Cannot send to {to_email}")
+    if not api_key:
+        print(f"Missing BREVO_API_KEY. Cannot send to {to_email}")
         return False
 
     try:
         final_html = get_html_template(html_content, unique_token)
-
-        msg = MIMEMultipart('mixed')
-        msg['Subject'] = subject
-        msg['From'] = from_email
-        msg['To'] = to_email
-
-        # Attach HTML body
-        msg_body = MIMEMultipart('alternative')
-        part = MIMEText(final_html, 'html')
-        msg_body.attach(part)
-        msg.attach(msg_body)
-
-        # Process attachments in memory
+        
+        payload = {
+            "sender": {"name": sender_name, "email": sender_email},
+            "to": [{"email": to_email}],
+            "subject": subject,
+            "htmlContent": final_html
+        }
+        
+        # Process attachments in memory and encode to base64
         if attachments:
+            brevo_attachments = []
             for att in attachments:
                 filename = att.get('filename')
                 content = att.get('content')
                 if content and filename:
-                    part = MIMEBase('application', 'octet-stream')
-                    part.set_payload(content)
-                    encoders.encode_base64(part)
-                    part.add_header('Content-Disposition', f"attachment; filename= {filename}")
-                    msg.attach(part)
+                    b64_content = base64.b64encode(content).decode('utf-8')
+                    brevo_attachments.append({
+                        "name": filename,
+                        "content": b64_content
+                    })
+            if brevo_attachments:
+                payload["attachment"] = brevo_attachments
 
-        # Force IPv4 resolution to prevent IPv6 hanging on Render
-        import socket
-        ipv4_address = socket.gethostbyname(smtp_server)
+        headers = {
+            "accept": "application/json",
+            "content-type": "application/json",
+            "api-key": api_key
+        }
 
-        if smtp_port == 465:
-            server = smtplib.SMTP_SSL(ipv4_address, smtp_port, timeout=10)
+        # Use HTTP POST instead of SMTP
+        response = requests.post("https://api.brevo.com/v3/smtp/email", json=payload, headers=headers, timeout=15)
+        
+        if response.status_code in [200, 201, 202]:
+            return True
         else:
-            server = smtplib.SMTP(ipv4_address, smtp_port, timeout=10)
-            server.starttls()
+            print(f"Brevo API Error: {response.status_code} - {response.text}")
+            return False
             
-        server.login(smtp_user, smtp_password)
-        actual_user = smtp_user.replace('"', '').strip()
-        server.sendmail(actual_user, to_email, msg.as_string())
-        server.quit()
-            
-        return True
     except Exception as e:
         print(f"Failed to send email to {to_email}: {e}")
         return False
