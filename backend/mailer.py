@@ -63,7 +63,7 @@ def send_email(to_email, subject, html_content, unique_token=None, attachments=N
     smtp_server = os.environ.get('SMTP_SERVER', 'smtp.gmail.com')
     smtp_port = int(os.environ.get('SMTP_PORT', 587))
     smtp_user = os.environ.get('SMTP_USER')
-    smtp_password = os.environ.get('SMTP_PASSWORD')
+    smtp_password = os.environ.get('SMTP_PASSWORD', '').replace(' ', '')
     from_email = os.environ.get('FROM_EMAIL', 'Neural Automate <neuralautomate@gmail.com>')
 
     if not smtp_user or not smtp_password:
@@ -96,12 +96,20 @@ def send_email(to_email, subject, html_content, unique_token=None, attachments=N
                     part.add_header('Content-Disposition', f"attachment; filename= {filename}")
                     msg.attach(part)
 
-        with smtplib.SMTP(smtp_server, smtp_port, timeout=10) as server:
-            server.set_debuglevel(1)  # Enable debug output to see in Render logs
+        # Force IPv4 resolution to prevent IPv6 hanging on Render
+        import socket
+        ipv4_address = socket.gethostbyname(smtp_server)
+
+        if smtp_port == 465:
+            server = smtplib.SMTP_SSL(ipv4_address, smtp_port, timeout=10)
+        else:
+            server = smtplib.SMTP(ipv4_address, smtp_port, timeout=10)
             server.starttls()
-            server.login(smtp_user, smtp_password)
-            actual_user = smtp_user.replace('"', '').strip()
-            server.sendmail(actual_user, to_email, msg.as_string())
+            
+        server.login(smtp_user, smtp_password)
+        actual_user = smtp_user.replace('"', '').strip()
+        server.sendmail(actual_user, to_email, msg.as_string())
+        server.quit()
             
         return True
     except Exception as e:
