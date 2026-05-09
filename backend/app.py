@@ -31,6 +31,11 @@ db.init_app(app)
 with app.app_context():
     db.create_all()
 
+# --- HEALTH CHECK ---
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    return jsonify({'status': 'healthy', 'message': 'API is running smoothly!'}), 200
+
 # Cloudinary Setup
 cloudinary.config(
   cloud_name = os.environ.get('CLOUDINARY_CLOUD_NAME', ''),
