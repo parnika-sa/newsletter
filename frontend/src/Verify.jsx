@@ -10,7 +10,7 @@ export default function Verify() {
   useEffect(() => {
     const verifyEmail = async () => {
       try {
-        const response = await fetch(`http://localhost:5000/api/verify/${token}`, {
+        const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}` + `/api/verify/${token}`, {
           method: 'POST'
         });
         const data = await response.json();

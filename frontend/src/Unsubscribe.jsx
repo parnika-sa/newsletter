@@ -10,7 +10,7 @@ export default function Unsubscribe() {
   const handleUnsubscribe = async () => {
     setStatus('loading');
     try {
-      const response = await fetch(`http://localhost:5000/api/unsubscribe/${token}`, {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}` + `/api/unsubscribe/${token}`, {
         method: 'POST'
       });
       const data = await response.json();

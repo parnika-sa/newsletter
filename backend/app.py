@@ -10,27 +10,33 @@ from database import db, Subscriber, Tag, Campaign, EmailLog, LinkClick
 from dotenv import load_dotenv
 from mailer import send_email, send_verification_email, send_welcome_email
 from werkzeug.utils import secure_filename
+import cloudinary
+import cloudinary.uploader
 
 load_dotenv()
 
 app = Flask(__name__)
 CORS(app)
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///newsletter.db'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+# Database Setup (Postgres from URL, fallback to SQLite)
+db_url = os.environ.get('DATABASE_URL', 'sqlite:///newsletter.db')
+if db_url.startswith("postgres://"):
+    db_url = db_url.replace("postgres://", "postgresql://", 1)
 
-UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['SQLALCHEMY_DATABASE_URI'] = db_url
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db.init_app(app)
 
 with app.app_context():
     db.create_all()
 
-@app.route('/uploads/<filename>')
-def uploaded_file(filename):
-    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+# Cloudinary Setup
+cloudinary.config(
+  cloud_name = os.environ.get('CLOUDINARY_CLOUD_NAME', ''),
+  api_key = os.environ.get('CLOUDINARY_API_KEY', ''),
+  api_secret = os.environ.get('CLOUDINARY_API_SECRET', '')
+)
 
 # --- SUBSCRIBER MANAGEMENT ---
 
@@ -49,7 +55,6 @@ def subscribe():
         if subscriber.is_active and subscriber.is_verified:
             return jsonify({'message': 'Already subscribed!'}), 200
         
-        # Resend verification if not verified
         subscriber.verification_token = str(uuid.uuid4())
         subscriber.is_active = True
         db.session.commit()
@@ -61,7 +66,6 @@ def subscribe():
     db.session.add(new_subscriber)
     db.session.commit()
     
-    # Send verification email
     send_verification_email(new_subscriber.email, token)
 
     return jsonify({'message': 'Successfully subscribed! Please check your email to verify your subscription.'}), 201
@@ -81,14 +85,12 @@ def verify_email(token):
     subscriber.verification_token = None
     db.session.commit()
     
-    # Send welcome email now that they are verified
     send_welcome_email(subscriber.email)
     
     return jsonify({'message': 'Email verified successfully!'}), 200
 
 @app.route('/api/unsubscribe/<token>', methods=['POST', 'GET'])
 def unsubscribe(token):
-    # The token is the EmailLog unique_token, which maps to a subscriber
     log = EmailLog.query.filter_by(unique_token=token).first()
     
     if not log:
@@ -142,7 +144,6 @@ def import_csv():
         
         new_emails = emails_to_add - existing_emails
         
-        # When admin imports, we consider them verified
         new_subscribers = [Subscriber(email=e, is_verified=True, is_active=True) for e in new_emails]
         db.session.bulk_save_objects(new_subscribers)
         db.session.commit()
@@ -168,21 +169,20 @@ def send_newsletter():
     if not subject or not content:
         return jsonify({'error': 'Subject and content are required'}), 400
         
-    # Handle attachments
+    # Handle attachments IN MEMORY (no disk saving required for Cloud)
     attachments = []
     files = request.files.getlist('attachments')
     for file in files:
         if file.filename != '':
             filename = secure_filename(file.filename)
-            filepath = os.path.join(app.config['UPLOAD_FOLDER'], f"attachment_{filename}")
-            file.save(filepath)
+            # Read file stream into memory
+            file_bytes = file.read()
             attachments.append({
-                'filepath': filepath,
                 'filename': filename,
+                'content': file_bytes,
                 'mimetype': file.content_type
             })
             
-    # Create Campaign
     campaign = Campaign(subject=subject)
     db.session.add(campaign)
     db.session.commit()
@@ -199,8 +199,6 @@ def send_newsletter():
         db.session.add(log)
         db.session.commit()
         
-        # Rewrite links for click tracking
-        # Replaces href="https://example.com" with href="http://localhost:5000/api/track/click/token?url=encoded_url"
         def repl(match):
             original_url = match.group(1)
             encoded_url = urllib.parse.quote(original_url)
@@ -208,15 +206,9 @@ def send_newsletter():
             
         tracked_content = re.sub(r'href="([^"]+)"', repl, content)
         
+        # Pass attachments memory buffers to mailer
         if send_email(sub.email, subject, tracked_content, token, attachments):
             success_count += 1
-            
-    # Clean up attachments
-    for att in attachments:
-        try:
-            os.remove(att['filepath'])
-        except:
-            pass
             
     return jsonify({
         'message': f'Newsletter sent successfully to {success_count} out of {len(active_subscribers)} active subscribers!',
@@ -233,13 +225,9 @@ def track_open(token):
         log.opened_at = datetime.datetime.utcnow()
         db.session.commit()
         
-    # Return a 1x1 transparent GIF
-    pixel_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pixel.gif')
-    if not os.path.exists(pixel_path):
-        with open(pixel_path, 'wb') as f:
-            f.write(b'GIF89a\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;')
-            
-    return send_file(pixel_path, mimetype='image/gif')
+    # Generate 1x1 GIF dynamically in memory (no file creation needed)
+    gif_bytes = b'GIF89a\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;'
+    return send_file(io.BytesIO(gif_bytes), mimetype='image/gif')
 
 @app.route('/api/track/click/<token>', methods=['GET'])
 def track_click(token):
@@ -263,7 +251,6 @@ def get_stats():
         
     total_subs = Subscriber.query.count()
     active_subs = Subscriber.query.filter_by(is_active=True, is_verified=True).count()
-    
     campaigns = Campaign.query.order_by(Campaign.id.desc()).limit(10).all()
     
     return jsonify({
@@ -272,7 +259,7 @@ def get_stats():
         'recent_campaigns': [c.to_dict() for c in campaigns]
     }), 200
 
-# --- QUILL IMAGE UPLOAD ---
+# --- QUILL IMAGE UPLOAD TO CLOUDINARY ---
 
 @app.route('/api/upload', methods=['POST'])
 def upload_image():
@@ -288,13 +275,13 @@ def upload_image():
         return jsonify({'error': 'No selected file'}), 400
         
     if file:
-        filename = secure_filename(file.filename)
-        unique_filename = f"{uuid.uuid4().hex}_{filename}"
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
-        file.save(filepath)
-        
-        image_url = f"http://localhost:5000/uploads/{unique_filename}"
-        return jsonify({'url': image_url}), 200
+        try:
+            # Upload stream directly to Cloudinary
+            upload_result = cloudinary.uploader.upload(file)
+            image_url = upload_result.get('secure_url')
+            return jsonify({'url': image_url}), 200
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)

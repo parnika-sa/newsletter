@@ -46,8 +46,8 @@ function Admin() {
     try {
       const headers = { 'Authorization': 'Bearer my_super_secret_admin_token' }
       const [subsRes, statsRes] = await Promise.all([
-        fetch('http://localhost:5000/api/subscribers', { headers }),
-        fetch('http://localhost:5000/api/stats', { headers })
+        fetch((import.meta.env.VITE_API_URL || 'http://localhost:5000') + '/api/subscribers', { headers }),
+        fetch((import.meta.env.VITE_API_URL || 'http://localhost:5000') + '/api/stats', { headers })
       ])
       
       if (subsRes.ok) setSubscribers(await subsRes.json())
@@ -77,7 +77,7 @@ function Admin() {
         formData.append('image', file)
 
         try {
-          const res = await fetch('http://localhost:5000/api/upload', {
+          const res = await fetch((import.meta.env.VITE_API_URL || 'http://localhost:5000') + '/api/upload', {
             method: 'POST',
             headers: { 'Authorization': 'Bearer my_super_secret_admin_token' },
             body: formData
@@ -125,7 +125,7 @@ function Admin() {
       formData.append('content', content)
       attachments.forEach(file => formData.append('attachments', file))
 
-      const response = await fetch('http://localhost:5000/api/send', {
+      const response = await fetch((import.meta.env.VITE_API_URL || 'http://localhost:5000') + '/api/send', {
         method: 'POST',
         headers: { 'Authorization': 'Bearer my_super_secret_admin_token' },
         body: formData
@@ -171,7 +171,7 @@ function Admin() {
     formData.append('file', file)
 
     try {
-      const res = await fetch('http://localhost:5000/api/import', {
+      const res = await fetch((import.meta.env.VITE_API_URL || 'http://localhost:5000') + '/api/import', {
         method: 'POST',
         headers: { 'Authorization': 'Bearer my_super_secret_admin_token' },
         body: formData

@@ -84,15 +84,14 @@ def send_email(to_email, subject, html_content, unique_token=None, attachments=N
         msg_body.attach(part)
         msg.attach(msg_body)
 
-        # Process attachments
+        # Process attachments in memory
         if attachments:
             for att in attachments:
-                filepath = att.get('filepath')
                 filename = att.get('filename')
-                if os.path.exists(filepath):
-                    with open(filepath, "rb") as attachment:
-                        part = MIMEBase('application', 'octet-stream')
-                        part.set_payload(attachment.read())
+                content = att.get('content')
+                if content and filename:
+                    part = MIMEBase('application', 'octet-stream')
+                    part.set_payload(content)
                     encoders.encode_base64(part)
                     part.add_header('Content-Disposition', f"attachment; filename= {filename}")
                     msg.attach(part)
