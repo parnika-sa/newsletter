@@ -96,7 +96,8 @@ def send_email(to_email, subject, html_content, unique_token=None, attachments=N
                     part.add_header('Content-Disposition', f"attachment; filename= {filename}")
                     msg.attach(part)
 
-        with smtplib.SMTP(smtp_server, smtp_port) as server:
+        with smtplib.SMTP(smtp_server, smtp_port, timeout=10) as server:
+            server.set_debuglevel(1)  # Enable debug output to see in Render logs
             server.starttls()
             server.login(smtp_user, smtp_password)
             actual_user = smtp_user.replace('"', '').strip()
